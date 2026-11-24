@@ -56,6 +56,17 @@ function boxBlur(src,w,h,r,passes=3){
 }
 function applyEdit(cv,P,opt={}){
   const w=cv.width,h=cv.height,n=w*h,ctx=cv.getContext('2d'),im=ctx.getImageData(0,0,w,h),d=im.data;
+  /* 0. clean first: remove colour speckle and noise-sized luminance wobble before anything is brightened. Real edges are left alone. */
+  {const L0=new Float32Array(n),DR=new Float32Array(n),DB=new Float32Array(n);
+   for(let p=0,i=0;p<n;p++,i+=4){const r=d[i],g=d[i+1],b=d[i+2],l=.2126*r+.7152*g+.0722*b;L0[p]=l;DR[p]=r-l;DB[p]=b-l}
+   const rs=Math.max(1,Math.round(Math.max(w,h)/700));
+   const Ls=boxBlur(L0,w,h,rs,2),Rs=boxBlur(DR,w,h,Math.max(2,rs*2),2),Bs=boxBlur(DB,w,h,Math.max(2,rs*2),2);
+   for(let p=0,i=0;p<n;p++,i+=4){
+     const dl=L0[p]-Ls[p],ad=dl<0?-dl:dl;
+     const kl=(1-sstep(5,16,ad))*(.45+.4*(1-L0[p]/255)),cf=(1-sstep(10,35,ad))*.85;
+     const l=L0[p]-dl*kl,dr=DR[p]+(Rs[p]-DR[p])*cf,db=DB[p]+(Bs[p]-DB[p])*cf;
+     let r=l+dr,b=l+db,g=(l-.2126*r-.0722*b)/.7152;
+     d[i]=r<0?0:r>255?255:r;d[i+1]=g<0?0:g>255?255:g;d[i+2]=b<0?0:b>255?255:b}}
   /* 1. read the photo: median brightness and a neutral-balance estimate from the midtones */
   const hist=new Uint32Array(256);let ar=0,ag=0,ab=0,mn=0,cnt=0;
   const step=Math.max(1,Math.floor(n/60000));
@@ -78,7 +89,7 @@ function applyEdit(cv,P,opt={}){
     if(v>.88)v=.88+(v-.88)*.55;
     v+=P.con*(v*v*(3-2*v)-v);
     v=P.blk+v*(1-P.blk);v=v<0?0:v>1?1:v;
-    const k=G22I[(v*4095)|0]/Y;r*=k;g*=k;b*=k;
+    let k=G22I[(v*4095)|0]/Y;if(k>2.2)k=2.2;r*=k;g*=k;b*=k;
     const ws=(1-v)*(1-v),wh=v*v;
     r+=-P.shT*.012*ws+P.hiT*.012*wh;b+=P.shT*.016*ws-P.hiT*.014*wh;g+=P.shT*.004*ws+P.hiT*.002*wh;
     r=r<0?0:r>1?1:r;g=g<0?0:g>1?1:g;b=b<0?0:b>1?1:b;
@@ -89,7 +100,7 @@ function applyEdit(cv,P,opt={}){
   const blur=P.clar?boxBlur(L,w,h,Math.max(4,Math.round(Math.max(w,h)/55))):null;
   for(let p=0;p<n;p++){
     const i=p*4;let r=d[i],g=d[i+1],b=d[i+2];const l0=L[p];
-    if(blur){const mid=1-Math.pow(Math.abs(l0/127.5-1),2.2);const add=(l0-blur[p])*P.clar*1.2*mid;r+=add;g+=add;b+=add;r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b}
+    if(blur){const mid=1-Math.pow(Math.abs(l0/127.5-1),2.2);let add=(l0-blur[p])*P.clar*.8*mid;add=add<-12?-12:add>12?12:add;r+=add;g+=add;b+=add;r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b}
     const mx=Math.max(r,g,b),mi=Math.min(r,g,b);
     if(mx>1){
       const sat=(mx-mi)/mx;let f=1+P.sat;
@@ -101,7 +112,7 @@ function applyEdit(cv,P,opt={}){
     d[i]=r<0?0:r>255?255:r;d[i+1]=g<0?0:g>255?255:g;d[i+2]=b<0?0:b>255?255:b;
   }
   /* 4. finishing sharpen on luminance only, with a noise threshold */
-  if(opt.sharpen!==false){
+  if(opt.sharpen===true){
     for(let p=0,i=0;p<n;p++,i+=4)L[p]=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
     const sm=boxBlur(L,w,h,Math.max(1,Math.round(Math.max(w,h)/1600)),2),amt=.55;
     for(let p=0,i=0;p<n;p++,i+=4){let df=L[p]-sm[p];if(df>-2&&df<2)continue;df*=amt;
@@ -357,12 +368,17 @@ async function processAll(){
   S.sig=sig;
   const n=S.edited.length;S.car=[...Array(Math.min(4,n)).keys()];S.capIdx=n>1?1:0;S.reel=[...Array(Math.min(3,n)).keys()];S.capEdited=false;
 }
-function captionFor(){
-  const t=[
-   'Meet our latest. Made with care, ready for you.','Here is what we do best. Message us to book your spot.','Save the date. We would love to see you there.','A little something for you this month. Message us to claim it.','The people and the work behind it, one frame at a time.'][S.promote];
-  const q=['Which one would you pick first?','What would you like us to help with?','Who are you bringing?','Who should we share it with?','Which moment would you keep forever?'][S.promote];
-  return `${t} ${q}`;
-}
+/* captions are written for the business type and what is being promoted: [product, service, event, offer, brand story] */
+const CAPS=[
+ ['New work from the studio, fresh off the edit. Every frame was chosen for a reason. Which one is your favourite?','Your story deserves to be told well. We photograph the moments you will want back. Message us to talk about your date.','Booking now for upcoming sessions. Message us to hold your date. Who are you celebrating?','A little something for our next clients. Message us to ask what is included. Who should we send it to?','Behind every photo is a person and a moment. This is how we see it. What moment would you keep forever?'],
+ ['Fresh from our kitchen. Come hungry. What would you order first?','Dine in, take away or let us cater. Message us to plan your table. Who are you bringing?','Join us at the table. Message us to reserve your seat. Who are you inviting?','A treat for our regulars and anyone new. Show this post when you visit. Who are you sharing it with?','Good food, made with care, served with a smile. This is who we are. What is your favourite dish here?'],
+ ['New in the shop. Come in and see it in person. Which one would you pick first?','Need help choosing? Our team will style it with you. Message us to book a visit. What are you shopping for?','Join us in store. Come early and have a look around. Who are you bringing?','A little something for you this month. Message us to claim it. Which piece has your eye?','Every piece here is chosen by hand. This is why we do it. What is the best thing you own?'],
+ ['New in the salon. Ask us about it on your next visit. Would you try it?','Book your chair and leave feeling like yourself, only better. Message us to book. What are you booking in for?','Join us at the salon. Spaces are limited, so message us to save yours. Who are you bringing?','A little something for your next visit. Message us to claim it. Who deserves a treat?','The people and the craft behind every chair. This is us. What is your favourite look you have had here?'],
+ ['New at the studio. Come and try it. What would you start with?','Train with people who care about your progress. Message us to book your first session. What is your goal?','Join us for a session. Message us to save your spot. Who are you training with?','A little something for new members. Message us to claim it. Who should you bring along?','Real people, real progress, one session at a time. This is who we are. What keeps you coming back?'],
+ ['New listing. Come and see it for yourself. Message us to book a viewing. Could you picture yourself here?','Buying, selling or renting, we will walk you through it. Message us to start. What are you looking for?','Open house. Come and walk through. Message us for the details. Who would you bring to see it?','Talk to us about your next move. Message us to ask what we can do for you. What matters most in a home?','Every home has a story. This is how we help people write the next chapter. What is your dream home?'],
+ ['New work, fresh from the studio. Message me if you want to know more. Which piece speaks to you?','Commissions are open. Message me to talk about your idea. What would you like made?','Come and see the work in person. Message me for the details. Who are you bringing?','A little something for collectors this month. Message me to ask. Which piece would you take home?','The story behind the work, one piece at a time. This is how it starts. What does art mean to you?'],
+ ['Meet our latest. Made with care, ready for you. Which one would you pick first?','Here is what we do best. Message us to book your spot. What would you like us to help with?','Save the date. We would love to see you there. Who are you bringing?','A little something for you this month. Message us to claim it. Who should we share it with?','The people and the work behind it, one frame at a time. Which moment would you keep forever?']];
+function captionFor(){return CAPS[S.biz][S.promote]}
 const cap=()=>{if(!S.capEdited)S.caption=captionFor();return S.caption};
 BIND.Results=async r=>{
   if(!S.edited.length||S.sig!==sigNow()){await processAll();if(!S.edited.length){toast('We could not read these photos. Try JPEG or PNG files.');return go('Connect')}return render()}
