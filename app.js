@@ -28,7 +28,7 @@ const S={authed:false,biz:0,mode:'edit',source:null,photos:[],count:0,focus:0,fo
  picked:[],order:[],changes:0,edited:[],tab:'after',promote:4,caption:'',capEdited:false,car:[],capIdx:0,reel:[],sig:'',seg:-1,music:0};
 
 /* ---------- image processing (all in the browser) ---------- */
-const bitmapOf=f=>createImageBitmap(f,{imageOrientation:'from-image'});
+const bitmapOf=async f=>{try{return await createImageBitmap(f,{imageOrientation:'from-image'})}catch(e){return await createImageBitmap(f)}};
 function drawContain(b,maxSide){const k=Math.min(1,maxSide/Math.max(b.width,b.height));const c=document.createElement('canvas');c.width=Math.round(b.width*k);c.height=Math.round(b.height*k);c.getContext('2d').drawImage(b,0,0,c.width,c.height);return c}
 function drawCover(src,W,H){const c=document.createElement('canvas');c.width=W;c.height=H;const k=Math.max(W/src.width,H/src.height),w=src.width*k,h=src.height*k;c.getContext('2d').drawImage(src,(W-w)/2,(H-h)/2,w,h);return c}
 function stats(cv){const w=Math.min(200,cv.width),h=Math.max(1,Math.round(cv.height*w/cv.width));const t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(cv,0,0,w,h);const d=x.getImageData(0,0,w,h).data;const n=w*h,hist=new Uint32Array(256);let sS=0,sRB=0,sh=0,shN=0,hi=0,hiN=0;
@@ -206,7 +206,8 @@ async function useSamples(){
 
 /* ---------- navigation ---------- */
 const root=()=>$('#app');
-async function go(name){S.screen=name;await render()}
+async function go(name){if(S.screen!==name){try{history.pushState({s:name},'')}catch(e){}}S.screen=name;await render()}
+window.addEventListener('popstate',e=>{const t=e.state&&e.state.s;if(!t||t==='login'){S.screen='login';loginScreen()}else{S.screen=t;render()}});
 function imgFor(name,i){
   const ph='data:image/gif;base64,R0lGODlhAQABAAAAACw=';
   const th=ix=>{const p=S.photos[ix];return p?p.url:ph};
@@ -225,6 +226,10 @@ async function render(){
   const r=root();r.innerHTML=html.replace(/@@I(\d+)@@/g,(m,i)=>imgFor(name,+i));
   const f=r.firstElementChild;f.style.width='100%';f.style.maxWidth='430px';f.style.height='auto';f.style.minHeight='100vh';f.style.margin='0 auto';
   r.querySelectorAll('a[data-go]').forEach(a=>a.onclick=e=>{e.preventDefault();go(a.dataset.go)});
+  const hdr=f.firstElementChild&&f.firstElementChild.firstElementChild&&f.firstElementChild.firstElementChild.firstElementChild;
+  if(hdr){const bk=document.createElement('div');bk.setAttribute('role','button');bk.setAttribute('aria-label','Back');bk.textContent='‹';
+    bk.style.cssText='width:30px;height:30px;border-radius:15px;border:1px solid #E3DDD0;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;cursor:pointer;margin-right:2px;padding-bottom:3px;box-sizing:border-box';
+    bk.onclick=()=>{try{history.back()}catch(e){loginScreen()}};hdr.insertBefore(bk,hdr.firstChild);hdr.style.gap='8px'}
   window.scrollTo(0,0);
   await (BIND[name]&&BIND[name](r));
 }
@@ -319,6 +324,7 @@ async function ensureSample(){
 BIND.Sample=r=>{
   const box=r.querySelector('div[style*="width: 346px"]'),L=[...box.children],after=L[1],line=L[2],knob=L[3];
   const setPos=pct=>{pct=clamp(pct,2,98);after.style.clipPath=`inset(0 0 0 ${pct}%)`;line.style.left=`calc(${pct}% - 1px)`;knob.style.left=`calc(${pct}% - 13px)`};
+  setPos(50);
   const mv=e=>{const rc=box.getBoundingClientRect();setPos((e.clientX-rc.left)/rc.width*100)};
   box.style.touchAction='none';box.onpointerdown=e=>{mv(e);box.setPointerCapture(e.pointerId)};box.onpointermove=e=>{if(e.buttons)mv(e)};
   const line1=[...r.querySelectorAll('div')].find(d=>/^Your look:/.test(d.textContent.trim())&&d.querySelector('b')&&d.children.length===1);
@@ -344,8 +350,11 @@ async function processAll(){
   const sig=sigNow();if(S.sig===sig&&S.edited.length)return;
   const wantEdit=S.mode==='edit',b=busy(wantEdit?'Editing your photos':'Preparing your photos');
   S.edited.forEach(e=>URL.revokeObjectURL(e.thumb));S.edited=[];
-  for(let i=0;i<S.picked.length;i++){S.edited.push(await editOne(S.photos[S.picked[i]],wantEdit));b.set(i+1,S.picked.length);await tick()}
-  b.done();S.sig=sig;
+  let failed=0;
+  try{for(let i=0;i<S.picked.length;i++){try{S.edited.push(await editOne(S.photos[S.picked[i]],wantEdit))}catch(e){failed++;console.error(e)}b.set(i+1,S.picked.length);await tick()}}
+  finally{b.done()}
+  if(failed)toast(`${failed} photo${failed>1?'s':''} could not be read and ${failed>1?'were':'was'} skipped.`);
+  S.sig=sig;
   const n=S.edited.length;S.car=[...Array(Math.min(4,n)).keys()];S.capIdx=n>1?1:0;S.reel=[...Array(Math.min(3,n)).keys()];S.capEdited=false;
 }
 function captionFor(){
@@ -356,7 +365,7 @@ function captionFor(){
 }
 const cap=()=>{if(!S.capEdited)S.caption=captionFor();return S.caption};
 BIND.Results=async r=>{
-  if(!S.edited.length||S.sig!==sigNow()){await processAll();return render()}
+  if(!S.edited.length||S.sig!==sigNow()){await processAll();if(!S.edited.length){toast('We could not read these photos. Try JPEG or PNG files.');return go('Connect')}return render()}
   const wantEdit=S.mode==='edit',n=S.edited.length;
   const head=[...r.querySelectorAll('div')].find(d=>/photos, edited$/.test(d.textContent.trim())&&d.children.length===0);if(head)head.textContent=`${FMT(n)} photos, ${wantEdit?'edited':'picked'}`;
   const bef=findText(r,'Before'),aft=findText(r,'After'),seg=bef.parentElement;
@@ -488,4 +497,4 @@ function loginScreen(){
   const go_=()=>{if($('#em').value.trim().toLowerCase()==='demo@postpilot.app'&&$('#pw').value==='PostPilot2026'){S.authed=true;go('About')}else $('#er').textContent='Wrong email or password. Use the demo account above.'};
   $('#go').onclick=e=>{e.preventDefault();go_()};$('#pw').onkeydown=e=>{if(e.key==='Enter')go_()};
 }
-window.addEventListener('DOMContentLoaded',loginScreen);
+window.addEventListener('DOMContentLoaded',()=>{try{history.replaceState({s:'login'},'')}catch(e){}loginScreen()});
