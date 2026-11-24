@@ -15,10 +15,13 @@ const BIZ=[
  {n:'Artist',p:'artists',focus:1,look:1},
  {n:'Other',p:'your business',focus:0,look:2}];
 const FOCUS=['Tell the story','Best individual shots','Wide variety of moments','People and portraits'];
+/* look = a full grade, not a brightness slider.
+   T target median, sh shadow lift, hl highlight recovery, con S-curve, blk black lift, clar local contrast,
+   vib vibrance, sat saturation, grn green/aqua desaturation, warm temperature, shT/hiT split tone, wb auto white balance strength */
 const LOOKS=[
- {n:'Bright and airy',p:{exp:.16,con:-.05,sat:-.06,warm:.04}},
- {n:'Moody',p:{exp:-.08,con:.22,sat:-.10,warm:-.04}},
- {n:'Natural',p:{exp:.04,con:.08,sat:.04,warm:.02}}];
+ {n:'Bright and airy',p:{T:.56,sh:.55,hl:.45,con:.12,blk:.03,clar:.16,vib:.12,sat:-.04,grn:-.28,warm:.035,shT:-.10,hiT:.25,wb:.6}},
+ {n:'Moody',p:{T:.38,sh:.10,hl:.60,con:.36,blk:.0,clar:.32,vib:-.05,sat:-.10,grn:-.22,warm:-.02,shT:.55,hiT:.20,wb:.5}},
+ {n:'Natural',p:{T:.46,sh:.35,hl:.45,con:.20,blk:.01,clar:.20,vib:.14,sat:.0,grn:-.08,warm:.012,shT:.0,hiT:.05,wb:.55}}];
 const PROMOTE=['A product','A service','An event','An offer','Brand story'];
 
 const S={authed:false,biz:0,mode:'edit',source:null,photos:[],count:0,focus:0,focusNote:'',look:2,ref:null,crop:false,
@@ -28,12 +31,96 @@ const S={authed:false,biz:0,mode:'edit',source:null,photos:[],count:0,focus:0,fo
 const bitmapOf=f=>createImageBitmap(f,{imageOrientation:'from-image'});
 function drawContain(b,maxSide){const k=Math.min(1,maxSide/Math.max(b.width,b.height));const c=document.createElement('canvas');c.width=Math.round(b.width*k);c.height=Math.round(b.height*k);c.getContext('2d').drawImage(b,0,0,c.width,c.height);return c}
 function drawCover(src,W,H){const c=document.createElement('canvas');c.width=W;c.height=H;const k=Math.max(W/src.width,H/src.height),w=src.width*k,h=src.height*k;c.getContext('2d').drawImage(src,(W-w)/2,(H-h)/2,w,h);return c}
-function stats(cv){const w=Math.min(160,cv.width),h=Math.max(1,Math.round(cv.height*w/cv.width));const t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(cv,0,0,w,h);const d=x.getImageData(0,0,w,h).data;const n=w*h;let sL=0,sS=0,sRB=0;const L=new Float32Array(n);for(let i=0,j=0;i<d.length;i+=4,j++){const r=d[i],g=d[i+1],b=d[i+2],l=.299*r+.587*g+.114*b;L[j]=l;sL+=l;sS+=Math.max(r,g,b)-Math.min(r,g,b);sRB+=r-b}const m=sL/n;let v=0;for(let j=0;j<n;j++)v+=(L[j]-m)**2;return{mean:m,std:Math.sqrt(v/n)||1,sat:sS/n||1,rb:sRB/n}}
+function stats(cv){const w=Math.min(200,cv.width),h=Math.max(1,Math.round(cv.height*w/cv.width));const t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(cv,0,0,w,h);const d=x.getImageData(0,0,w,h).data;const n=w*h,hist=new Uint32Array(256);let sS=0,sRB=0,sh=0,shN=0,hi=0,hiN=0;
+  for(let i=0;i<d.length;i+=4){const r=d[i],g=d[i+1],b=d[i+2],l=Math.round(.2126*r+.7152*g+.0722*b);hist[l]++;const mx=Math.max(r,g,b),mn=Math.min(r,g,b);sS+=mx?(mx-mn)/mx:0;sRB+=r-b;if(l<80){sh+=r-b;shN++}if(l>180){hi+=r-b;hiN++}}
+  const pct=q=>{let c=0;for(let i=0;i<256;i++){c+=hist[i];if(c>=q*n)return i}return 255};
+  return{median:pct(.5)/255,p5:pct(.05),p95:pct(.95),spread:Math.max(20,pct(.95)-pct(.05)),sat:sS/n||.01,rb:sRB/n,shRB:shN?sh/shN:0,hiRB:hiN?hi/hiN:0}}
 function sharpScore(cv){const w=200,h=Math.max(8,Math.round(cv.height*w/cv.width));const t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(cv,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=new Float32Array(w*h);for(let i=0,j=0;j<g.length;i+=4,j++)g[j]=.299*d[i]+.587*d[i+1]+.114*d[i+2];let s=0,s2=0,n=0,sum=0;for(let y=1;y<h-1;y++)for(let xx=1;xx<w-1;xx++){const k=y*w+xx,l=4*g[k]-g[k-1]-g[k+1]-g[k-w]-g[k+w];s+=l;s2+=l*l;n++}for(let j=0;j<g.length;j++)sum+=g[j];const mean=sum/g.length;return{sharp:s2/n-(s/n)**2,expo:1-Math.min(1,Math.abs(mean-125)/125)}}
 function dhash(cv){const t=document.createElement('canvas');t.width=9;t.height=8;const x=t.getContext('2d');x.drawImage(cv,0,0,9,8);const d=x.getImageData(0,0,9,8).data,bits=[];for(let y=0;y<8;y++)for(let xx=0;xx<8;xx++){const a=d[(y*9+xx)*4]+d[(y*9+xx)*4+1]+d[(y*9+xx)*4+2],b=d[(y*9+xx+1)*4]+d[(y*9+xx+1)*4+1]+d[(y*9+xx+1)*4+2];bits.push(a>b?1:0)}return bits}
 const ham=(a,b)=>{let n=0;for(let i=0;i<64;i++)if(a[i]!==b[i])n++;return n};
-function applyEdit(cv,p){const x=cv.getContext('2d'),im=x.getImageData(0,0,cv.width,cv.height),d=im.data,e=1+p.exp,c=1+p.con,s=1+p.sat,wm=p.warm*40;for(let i=0;i<d.length;i+=4){let r=d[i]*e,g=d[i+1]*e,b=d[i+2]*e;r=(r-128)*c+128;g=(g-128)*c+128;b=(b-128)*c+128;const l=.299*r+.587*g+.114*b;r=l+(r-l)*s;g=l+(g-l)*s;b=l+(b-l)*s;r+=wm;b-=wm;d[i]=r<0?0:r>255?255:r;d[i+1]=g<0?0:g>255?255:g;d[i+2]=b<0?0:b>255?255:b}x.putImageData(im,0,0);return cv}
-const paramsFromRef=(r,s)=>({exp:clamp((r.mean-s.mean)/255*.9,-.3,.3),con:clamp(r.std/s.std-1,-.3,.4),sat:clamp(r.sat/s.sat-1,-.35,.4),warm:clamp((r.rb-s.rb)/255*1.2,-.2,.25)});
+/* ---------- professional edit engine ---------- */
+const LIN=(()=>{const t=new Float32Array(256);for(let i=0;i<256;i++){const c=i/255;t[i]=c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)}return t})();
+const ENC=(()=>{const t=new Uint8ClampedArray(4096);for(let i=0;i<4096;i++){const c=i/4095;t[i]=Math.round(255*(c<=.0031308?c*12.92:1.055*Math.pow(c,1/2.4)-.055))}return t})();
+const G22=(()=>{const t=new Float32Array(4096);for(let i=0;i<4096;i++)t[i]=Math.pow(i/4095,1/2.2);return t})();
+const G22I=(()=>{const t=new Float32Array(4096);for(let i=0;i<4096;i++)t[i]=Math.pow(i/4095,2.2);return t})();
+const sstep=(a,b,x)=>{x=(x-a)/(b-a);x=x<0?0:x>1?1:x;return x*x*(3-2*x)};
+function boxBlur(src,w,h,r,passes=3){
+  let a=new Float32Array(src),b=new Float32Array(src.length);
+  for(let p=0;p<passes;p++){
+    for(let y=0;y<h;y++){let acc=0;const o=y*w;for(let x=-r;x<=r;x++)acc+=a[o+Math.min(w-1,Math.max(0,x))];
+      for(let x=0;x<w;x++){b[o+x]=acc/(2*r+1);acc+=a[o+Math.min(w-1,x+r+1)]-a[o+Math.max(0,x-r)]}}
+    for(let x=0;x<w;x++){let acc=0;for(let y=-r;y<=r;y++)acc+=b[Math.min(h-1,Math.max(0,y))*w+x];
+      for(let y=0;y<h;y++){a[y*w+x]=acc/(2*r+1);acc+=b[Math.min(h-1,y+r+1)*w+x]-b[Math.max(0,y-r)*w+x]}}
+  }
+  return a;
+}
+function applyEdit(cv,P,opt={}){
+  const w=cv.width,h=cv.height,n=w*h,ctx=cv.getContext('2d'),im=ctx.getImageData(0,0,w,h),d=im.data;
+  /* 1. read the photo: median brightness and a neutral-balance estimate from the midtones */
+  const hist=new Uint32Array(256);let ar=0,ag=0,ab=0,mn=0,cnt=0;
+  const step=Math.max(1,Math.floor(n/60000));
+  for(let p=0;p<n;p+=step){const i=p*4,l=Math.round(.2126*d[i]+.7152*d[i+1]+.0722*d[i+2]);hist[l]++;cnt++;
+    if(l>50&&l<215){ar+=LIN[d[i]];ag+=LIN[d[i+1]];ab+=LIN[d[i+2]];mn++}}
+  let tot=0,vmed=.5;for(let i=0;i<256;i++){tot+=hist[i];if(tot>=.5*cnt){vmed=Math.max(.04,i/255);break}}
+  /* auto exposure: bring each photo toward the look's target, but only part of the way so dark rooms stay dark */
+  let eg=Math.pow(P.T/vmed,2.2);eg=Math.pow(clamp(eg,.6,1.8),.8);
+  /* auto white balance: gray-world on the midtones, limited, plus the look's temperature */
+  let gr=1,gg=1,gb=1;if(mn>200&&P.wb>0){const mr=ar/mn,mg=ag/mn,mb=ab/mn,m=(mr+mg+mb)/3;
+    gr=1+clamp(m/mr-1,-.14,.14)*P.wb;gg=1+clamp(m/mg-1,-.14,.14)*P.wb;gb=1+clamp(m/mb-1,-.14,.14)*P.wb}
+  gr*=1+P.warm*.6;gb*=1-P.warm*.6;
+  /* 2. tone: shadow and highlight recovery, filmic S-curve, black point, split-toning, all on luminance */
+  for(let p=0;p<n;p++){
+    const i=p*4;let r=LIN[d[i]]*gr*eg,g=LIN[d[i+1]]*gg*eg,b=LIN[d[i+2]]*gb*eg;
+    let Y=.2126*r+.7152*g+.0722*b;if(Y<1e-5)Y=1e-5;
+    let v=G22[Math.min(4095,(Y*4095)|0)];
+    v+=P.sh*.16*(1-sstep(.04,.55,v));
+    v-=P.hl*.20*sstep(.55,1.0,v);
+    if(v>.88)v=.88+(v-.88)*.55;
+    v+=P.con*(v*v*(3-2*v)-v);
+    v=P.blk+v*(1-P.blk);v=v<0?0:v>1?1:v;
+    const k=G22I[(v*4095)|0]/Y;r*=k;g*=k;b*=k;
+    const ws=(1-v)*(1-v),wh=v*v;
+    r+=-P.shT*.012*ws+P.hiT*.012*wh;b+=P.shT*.016*ws-P.hiT*.014*wh;g+=P.shT*.004*ws+P.hiT*.002*wh;
+    r=r<0?0:r>1?1:r;g=g<0?0:g>1?1:g;b=b<0?0:b>1?1:b;
+    d[i]=ENC[(r*4095)|0];d[i+1]=ENC[(g*4095)|0];d[i+2]=ENC[(b*4095)|0];
+  }
+  /* 3. local contrast from a wide blur (midtones only), then colour work */
+  const L=new Float32Array(n);for(let p=0,i=0;p<n;p++,i+=4)L[p]=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
+  const blur=P.clar?boxBlur(L,w,h,Math.max(4,Math.round(Math.max(w,h)/55))):null;
+  for(let p=0;p<n;p++){
+    const i=p*4;let r=d[i],g=d[i+1],b=d[i+2];const l0=L[p];
+    if(blur){const mid=1-Math.pow(Math.abs(l0/127.5-1),2.2);const add=(l0-blur[p])*P.clar*1.2*mid;r+=add;g+=add;b+=add;r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b}
+    const mx=Math.max(r,g,b),mi=Math.min(r,g,b);
+    if(mx>1){
+      const sat=(mx-mi)/mx;let f=1+P.sat;
+      let hue=0;if(mx>mi){const dd=mx-mi;hue=mx===r?((g-b)/dd+6)%6:mx===g?(b-r)/dd+2:(r-g)/dd+4;hue*=60}
+      f+=P.vib*Math.pow(1-sat,1.5)*(hue>8&&hue<50?.35:1);
+      if(hue>70&&hue<190&&P.grn)f+=P.grn*Math.min(1,sat*2.2);
+      const l=.2126*r+.7152*g+.0722*b;r=l+(r-l)*f;g=l+(g-l)*f;b=l+(b-l)*f;
+    }
+    d[i]=r<0?0:r>255?255:r;d[i+1]=g<0?0:g>255?255:g;d[i+2]=b<0?0:b>255?255:b;
+  }
+  /* 4. finishing sharpen on luminance only, with a noise threshold */
+  if(opt.sharpen!==false){
+    for(let p=0,i=0;p<n;p++,i+=4)L[p]=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
+    const sm=boxBlur(L,w,h,Math.max(1,Math.round(Math.max(w,h)/1600)),2),amt=.55;
+    for(let p=0,i=0;p<n;p++,i+=4){let df=L[p]-sm[p];if(df>-2&&df<2)continue;df*=amt;
+      const r=d[i]+df,g=d[i+1]+df,b=d[i+2]+df;d[i]=r<0?0:r>255?255:r;d[i+1]=g<0?0:g>255?255:g;d[i+2]=b<0?0:b>255?255:b}
+  }
+  ctx.putImageData(im,0,0);return cv;
+}
+/* a reference photo becomes a full grade: target brightness, contrast, colour strength, warmth and split-tone */
+function paramsFromRef(ref,src){
+  return{...LOOKS[2].p,
+   T:clamp(ref.median,.3,.66),
+   con:clamp(.2+(ref.spread/src.spread-1)*.6,.02,.5),
+   blk:clamp(ref.p5/255*.6,0,.06),
+   vib:clamp((ref.sat/src.sat-1)*.8,-.3,.4),
+   sat:clamp((ref.sat/src.sat-1)*.2,-.15,.15),
+   warm:clamp((ref.rb-src.rb)/255,-.12,.15),
+   shT:clamp((src.shRB-ref.shRB)/255*4,-1,1),
+   hiT:clamp((ref.hiRB-src.hiRB)/255*4,-1,1)};
+}
 const paramsFor=cv=>S.ref?paramsFromRef(S.ref,stats(cv)):LOOKS[S.look].p;
 const toBlob=(cv,q=.9)=>new Promise(r=>cv.toBlob(r,'image/jpeg',q));
 const blobUrl=b=>URL.createObjectURL(b);
