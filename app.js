@@ -2,7 +2,7 @@
 /* ============ PostPilot: built from the design screens ============ */
 const $=(s,r=document)=>r.querySelector(s);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const MAX_EDIT=2048,THUMB=360,FEEDBACK_URL=""; // set FEEDBACK_URL to a backend later
+const MAX_EDIT=2048,THUMB=560,FEEDBACK_URL=""; // set FEEDBACK_URL to a backend later
 const FMT=n=>Number(n).toLocaleString('en-US');
 
 const BIZ=[
@@ -201,7 +201,7 @@ async function ingest(files,kind){
   const b=busy('Making previews');
   for(let i=0;i<files.length;i++){
     try{const bm=await bitmapOf(files[i]),cv=drawContain(bm,THUMB);bm.close&&bm.close();const sc=sharpScore(cv);
-      S.photos.push({id:S.photos.length,name:files[i].name,file:files[i],time:files[i].lastModified||0,url:blobUrl(await toBlob(cv,.7)),sharp:sc.sharp,expo:sc.expo,hash:dhash(cv)})}catch(e){}
+      S.photos.push({id:S.photos.length,name:files[i].name,file:files[i],time:files[i].lastModified||0,url:blobUrl(await toBlob(cv,.85)),sharp:sc.sharp,expo:sc.expo,hash:dhash(cv)})}catch(e){}
     if(i%5===0||i===files.length-1){b.set(i+1,files.length);await tick()}
   }
   b.done();
@@ -229,6 +229,7 @@ function imgFor(name,i){
   return ph;
 }
 async function render(){
+  if(S._ig){clearInterval(S._ig);S._ig=null}
   const name=S.screen;let html=SCREENS[name];
   const N=S.photos.length,K=S.picked.length||S.count||0;
   html=html.replace(/3,412/g,FMT(N)).replace(/3412/g,N).replace(/\b150\b/g,FMT(K));
@@ -328,7 +329,7 @@ BIND.Review=r=>{
 };
 async function ensureSample(){
   const p=S.photos[S.picked[0]??0];if(!p)return;
-  const bm=await bitmapOf(p.file),a=drawContain(bm,800);bm.close&&bm.close();
+  const bm=await bitmapOf(p.file),a=drawContain(bm,1280);bm.close&&bm.close();
   const b=document.createElement('canvas');b.width=a.width;b.height=a.height;b.getContext('2d').drawImage(a,0,0);applyEdit(b,paramsFor(a));
   S.sBefore=blobUrl(await toBlob(a,.85));S.sAfter=blobUrl(await toBlob(b,.85));
 }
@@ -355,12 +356,12 @@ async function editOne(p,wantEdit){
   const bm=await bitmapOf(p.file);let cv=drawContain(bm,MAX_EDIT);bm.close&&bm.close();
   if(wantEdit)applyEdit(cv,paramsFor(cv));
   if(S.crop){const h=Math.min(cv.height,Math.round(cv.width*5/4)),w=Math.min(cv.width,Math.round(cv.height*4/5));const W=Math.min(cv.width,w),H=Math.round(W*5/4);cv=drawCover(cv,W,Math.min(H,cv.height))}
-  const full=await toBlob(cv,.92),t=drawContain(cv,THUMB);return{src:p.id,name:p.name.replace(/\.[^.]+$/,'')+(wantEdit?'-edited':'')+'.jpg',blob:full,thumb:blobUrl(await toBlob(t,.75))};
+  const full=await toBlob(cv,.92),t=drawContain(cv,THUMB);return{src:p.id,name:p.name.replace(/\.[^.]+$/,'')+(wantEdit?'-edited':'')+'.jpg',blob:full,thumb:blobUrl(await toBlob(t,.88)),view:blobUrl(full)};
 }
 async function processAll(){
   const sig=sigNow();if(S.sig===sig&&S.edited.length)return;
   const wantEdit=S.mode==='edit',b=busy(wantEdit?'Editing your photos':'Preparing your photos');
-  S.edited.forEach(e=>URL.revokeObjectURL(e.thumb));S.edited=[];
+  S.edited.forEach(e=>{URL.revokeObjectURL(e.thumb);URL.revokeObjectURL(e.view)});S.edited=[];
   let failed=0;
   try{for(let i=0;i<S.picked.length;i++){try{S.edited.push(await editOne(S.photos[S.picked[i]],wantEdit))}catch(e){failed++;console.error(e)}b.set(i+1,S.picked.length);await tick()}}
   finally{b.done()}
@@ -425,7 +426,7 @@ function captionBox(r){
   ta.value=cap();ta.setAttribute('style',(box.getAttribute('style')||'')+';width:100%;border:0;background:transparent;resize:none;font-family:inherit;outline:none;padding:0;color:#201C18');
   box.replaceWith(ta);ta.oninput=()=>{S.caption=ta.value;S.capEdited=true};return ta;
 }
-function refLink(r,redo){const a=r.querySelector('a[data-go="EditStyle"]');a.onclick=e=>{e.preventDefault();pickImage(async f=>{await setRefFile(f);const b=busy('Matching your reference');const ids=[...new Set([...S.car,S.capIdx,...S.reel])];for(let k=0;k<ids.length;k++){const old=S.edited[ids[k]];const ne=await editOne(S.photos[old.src],S.mode==='edit');URL.revokeObjectURL(old.thumb);S.edited[ids[k]]=ne;b.set(k+1,ids.length);await tick()}b.done();S.sig=sigNow();await render()})}}
+function refLink(r,redo){const a=r.querySelector('a[data-go="EditStyle"]');a.onclick=e=>{e.preventDefault();pickImage(async f=>{await setRefFile(f);const b=busy('Matching your reference');const ids=[...new Set([...S.car,S.capIdx,...S.reel])];for(let k=0;k<ids.length;k++){const old=S.edited[ids[k]];const ne=await editOne(S.photos[old.src],S.mode==='edit');URL.revokeObjectURL(old.thumb);URL.revokeObjectURL(old.view);S.edited[ids[k]]=ne;b.set(k+1,ids.length);await tick()}b.done();S.sig=sigNow();await render()})}}
 function slotRow(r,list,{min,max,label}){
   const first=findText(r,'×')||[...r.querySelectorAll('div')].find(d=>d.textContent.trim()==='×');
   const slot=up(first,e=>e.querySelector('[aria-hidden="true"]')&&e.children.length===2),row=slot.parentElement,tpl=slot.cloneNode(true),plus=row.lastElementChild;
@@ -437,12 +438,43 @@ function slotRow(r,list,{min,max,label}){
   draw();return{draw,add:i=>{if(list.length>=max){toast(`Up to ${max} photos.`);return}list.push(i);draw()}};
 }
 const doneBtn=r=>{const d=r.querySelector('a[data-go="Results"]');d.onclick=e=>{e.preventDefault();go('Results')};return d};
+/* ---------- Instagram-style preview (screen 8): shows the post the way it will look on Instagram ---------- */
+const ICON={heart:'<path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.7 5 6 5c2 0 3.4 1.1 4.2 2.4h.1C11.1 6.1 12.5 5 14.5 5c3.3 0 5.1 3.400 3.600 6.800C19.500 16.400 12 21 12 21z"/>',chat:'<path d="M21 11.500a8.500 8.500 0 0 1-12.300 7.600L3 21l1.900-5.500A8.500 8.500 0 1 1 21 11.500z"/>',send:'<path d="M22 3 2 10.500l7.500 3L13 21z M22 3 9.500 13.500"/>',save:'<path d="M6 3h12v18l-6-4.500L6 21z"/>'};
+const ico=n=>`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#201C18" stroke-width="1.800" stroke-linejoin="round" stroke-linecap="round">${ICON[n]}</svg>`;
+function igPost(r,kind,anchorText,getList,getCaption){
+  const anchor=findText(r,anchorText);if(!anchor)return;
+  const handle=BIZ[S.biz].n.split(' /')[0].toLowerCase().replace(/[^a-z0-9]+/g,'');
+  const w=document.createElement('div');
+  w.style.cssText='margin:6px auto 18px;width:100%;max-width:'+(kind==='reel'?'250px':'380px')+';background:#fff;border:1px solid #E3DDD0;border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(32,28,24,.08)';
+  const head=`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px"><div style="width:32px;height:32px;border-radius:16px;background:#201C18;color:#F9F6EF;display:flex;align-items:center;justify-content:center;font:600 14px Manrope,sans-serif">${(handle[0]||'p').toUpperCase()}</div><div style="flex:1;font:700 13px Manrope,sans-serif;color:#201C18">${handle||'yourbusiness'}</div><div style="font:700 18px Manrope,sans-serif;color:#201C18;letter-spacing:1px">&middot;&middot;&middot;</div></div>`;
+  const frameStyle=kind==='reel'?'aspect-ratio:9/16;background:#000':'aspect-ratio:4/5;background:#EFE9DC';
+  w.innerHTML=head+`<div class="igf" style="position:relative;${frameStyle};overflow:hidden"><div class="igt" style="display:flex;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none"></div><div class="igb" style="position:absolute;top:10px;right:10px;background:rgba(32,28,24,.7);color:#fff;font:600 11px Manrope,sans-serif;padding:3px 8px;border-radius:10px;display:none"></div></div>`+
+   `<div class="igd" style="display:none;justify-content:center;gap:5px;padding:9px 0 0"></div>`+
+   (kind==='reel'?'':`<div style="display:flex;align-items:center;gap:14px;padding:10px 12px 2px">${ico('heart')}${ico('chat')}${ico('send')}<span style="flex:1"></span>${ico('save')}</div>`)+
+   `<div class="igc" style="padding:6px 12px 12px;font:400 13px/1.45 Manrope,sans-serif;color:#201C18"></div>`;
+  anchor.insertAdjacentElement('afterend',w);
+  const track=w.querySelector('.igt'),badge=w.querySelector('.igb'),dots=w.querySelector('.igd'),capEl=w.querySelector('.igc');
+  let key='',tick=0;
+  const draw=()=>{
+    const ids=getList().filter(i=>S.edited[i]),k=kind+ids.join(',');
+    if(k!==key){key=k;track.innerHTML='';
+      ids.forEach((i,n)=>{const im=document.createElement('div');im.style.cssText='flex:0 0 100%;height:100%;scroll-snap-align:center;background:url('+S.edited[i].view+') center / cover'+(kind==='reel'?';transition:opacity .6s;opacity:'+(n?0:1)+';position:absolute;inset:0;flex:none;width:100%':'');track.append(im)});
+      if(kind==='reel'){track.style.display='block'}
+      dots.innerHTML=ids.map((_,n)=>`<div style="width:6px;height:6px;border-radius:3px;background:${n?'#C9C2B2':'#7A5A1C'}"></div>`).join('');
+      dots.style.display=kind==='carousel'&&ids.length>1?'flex':'none';badge.style.display=kind==='carousel'&&ids.length>1?'block':'none';badge.textContent='1/'+ids.length}
+    const t=getCaption();const sig=handle+t;if(capEl.dataset.s!==sig){capEl.dataset.s=sig;capEl.innerHTML='<b></b> <span></span>';capEl.firstChild.textContent=handle||'yourbusiness';capEl.lastChild.textContent=t}
+  };
+  track.addEventListener('scroll',()=>{if(kind!=='carousel')return;const n=Math.round(track.scrollLeft/track.clientWidth);[...dots.children].forEach((d,i)=>d.style.background=i===n?'#7A5A1C':'#C9C2B2');badge.textContent=(n+1)+'/'+dots.children.length});
+  draw();
+  S._ig=setInterval(()=>{draw();if(kind==='reel'){const sl=[...track.children];if(sl.length>1){tick=(tick+1)%sl.length;sl.forEach((e,i)=>e.style.opacity=i===tick?1:0)}}},kind==='reel'?1800:400);
+}
 BIND.Customize=r=>{
   if(!S.edited.length)return go('Results');
   const ta=captionBox(r);promoteChips(r,()=>ta.value=cap());
   const sr=slotRow(r,S.car,{min:3,max:5});
   const redrawGrid=()=>editedGrid(r,i=>{sr.add(i);redrawGrid()},{exclude:S.car});redrawGrid();
   r.addEventListener('change',redrawGrid,true);
+  igPost(r,'carousel','Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.',()=>S.car,()=>ta.value);
   refLink(r);doneBtn(r);
   findText(r,'Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.')&&0;
 };
@@ -453,11 +485,13 @@ BIND.Caption=r=>{
   hero.style.cursor='pointer';hero.onclick=()=>{S.capIdx=(S.capIdx+1)%S.edited.length;setHero()};
   const ta=captionBox(r);promoteChips(r,()=>ta.value=cap());
   editedGrid(r,i=>{S.capIdx=i;setHero()});
+  igPost(r,'photo','Change the photo, the message or what you promote.',()=>[S.capIdx],()=>ta.value);
   refLink(r);doneBtn(r);
 };
 BIND.Reel=r=>{
   if(!S.edited.length)return go('Results');
   slotRow(r,S.reel,{min:2,max:6});
+  igPost(r,'reel','Change the photos or the music.',()=>S.reel,()=>cap());
   refLink(r);
   const tabs=[...findText(r,'Library').parentElement.children];
   const sOn=styleOf(tabs.find(t=>/background: #FFFFFF/.test(styleOf(t)))||tabs[0]),sOff=styleOf(tabs.find(t=>!/background: #FFFFFF/.test(styleOf(t)))||tabs[1]);
