@@ -1,8 +1,8 @@
 # PostPilot
 
-Shortlist from hundreds or thousands of photos, edit them in one look, get Instagram-ready content.
+Shortlist from hundreds or thousands of photos, edit them in one look, and get Instagram-ready content.
 
-Version 1 is a static web app. Photos stay in the browser; nothing is uploaded.
+Version 2 follows the 8-step design. It is a static web app. Photos stay in the browser; nothing is uploaded to a server.
 
 Demo login: demo@postpilot.app / PostPilot2026
 
@@ -12,5 +12,5 @@ Open index.html in a browser.
 ## Deploy
 Import this repo in Vercel. No build step, no settings needed.
 
-## Next
-Google Drive and Dropbox, photo reel with music, server-side feedback storage (set FEEDBACK_URL in index.html).
+## Not built yet
+Google Drive and Dropbox, music for the reel, straighten, saving to Drive, server-side feedback storage (set FEEDBACK_URL in app.js).
