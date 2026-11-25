@@ -21,7 +21,7 @@ const FOCUS=['Tell the story','Best individual shots','Wide variety of moments',
 const LOOKS=[
  {n:'Bright and airy',p:{T:.56,sh:.55,hl:.45,con:.12,blk:.03,clar:.16,vib:.12,sat:-.04,grn:-.28,warm:.035,shT:-.10,hiT:.25,wb:.6}},
  {n:'Moody',p:{T:.38,sh:.10,hl:.60,con:.36,blk:.0,clar:.32,vib:-.05,sat:-.10,grn:-.22,warm:-.02,shT:.55,hiT:.20,wb:.5}},
- {n:'Natural',p:{T:.46,sh:.35,hl:.45,con:.20,blk:.01,clar:.20,vib:.14,sat:.0,grn:-.08,warm:.012,shT:.0,hiT:.05,wb:.55}}];
+ {n:'Natural',p:{T:.52,sh:.22,hl:.28,con:.34,blk:0,clar:.24,vib:.32,sat:.11,grn:.03,warm:.04,shT:0,hiT:.11,wb:.5}}];
 const PROMOTE=['A product','A service','An event','An offer','Brand story'];
 
 const S={authed:false,biz:0,mode:'edit',source:null,photos:[],count:0,focus:0,focusNote:'',look:2,ref:null,crop:false,
