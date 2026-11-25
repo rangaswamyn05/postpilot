@@ -355,8 +355,8 @@ function sigNow(){return [S.picked.join(','),S.mode,S.look,S.ref?JSON.stringify(
 async function editOne(p,wantEdit){
   const bm=await bitmapOf(p.file);let cv=drawContain(bm,MAX_EDIT);bm.close&&bm.close();
   if(wantEdit)applyEdit(cv,paramsFor(cv));
-  if(S.crop){const h=Math.min(cv.height,Math.round(cv.width*5/4)),w=Math.min(cv.width,Math.round(cv.height*4/5));const W=Math.min(cv.width,w),H=Math.round(W*5/4);cv=drawCover(cv,W,Math.min(H,cv.height))}
-  const full=await toBlob(cv,.92),t=drawContain(cv,THUMB);return{src:p.id,name:p.name.replace(/\.[^.]+$/,'')+(wantEdit?'-edited':'')+'.jpg',blob:full,thumb:blobUrl(await toBlob(t,.88)),view:blobUrl(full)};
+  if(S.crop){const h=Math.min(cv.height,Math.round(cv.width*5/4)),w=Math.min(cv.width,Math.round(cv.height*4/5));const W=Math.min(cv.width,w),H=Math.round(W*5/4);{const H2=Math.min(H,cv.height),f=focusOf(cv,W,H2);cv=coverAt(cv,W,H2,f[0],f[1])}}
+  const full=await toBlob(cv,.92),t=drawContain(cv,THUMB);return{pos:focusOf(cv),src:p.id,name:p.name.replace(/\.[^.]+$/,'')+(wantEdit?'-edited':'')+'.jpg',blob:full,thumb:blobUrl(await toBlob(t,.88)),view:blobUrl(full)};
 }
 async function processAll(){
   const sig=sigNow();if(S.sig===sig&&S.edited.length)return;
@@ -411,7 +411,7 @@ BIND.Results=async r=>{
   const drive=findText(r,'Save to Google Drive');drive.onclick=e=>{e.preventDefault();toast('Saving to Google Drive is coming in the next version.')};
   if(!wantEdit){const w=findText(r,'One consistent look across the whole set.');if(w)w.textContent='Your shortlist, ready to download.'}
 };
-async function slide(i,W=1080,H=1350,design=false){if(design&&dzSpec().on)return composeDesign(i,W,H);const bm=await createImageBitmap(S.edited[i%S.edited.length].blob);const c=drawCover(bm,W,H);bm.close&&bm.close();return c}
+async function slide(i,W=1080,H=1350,design=false){if(design&&dzSpec().on)return composeDesign(i,W,H);const o=srcOf(i),bm=await createImageBitmap(o.blob);const c=coverAt(bm,W,H,o.pos[0],o.pos[1]);bm.close&&bm.close();return c}
 
 /* shared pieces for the three Customize screens */
 function editedGrid(r,onPick,{exclude=[]}={}){
@@ -438,6 +438,24 @@ function slotRow(r,list,{min,max,label}){
   draw();return{draw,add:i=>{if(list.length>=max){toast(`Up to ${max} photos.`);return}list.push(i);draw()}};
 }
 const doneBtn=r=>{const d=r.querySelector('a[data-go="Results"]');d.onclick=e=>{e.preventDefault();go('Results')};return d};
+/* ---------- smart crop (no AI): keep the part of the photo with the most detail and colour inside the 4:5 frame ---------- */
+function focusOf(src,aw=4,ah=5){
+  const sw=src.width,sh=src.height,target=aw/ah;if(Math.abs(sw/sh-target)<.01)return[.5,.5];
+  const k=80/Math.max(sw,sh),w=Math.max(8,Math.round(sw*k)),h=Math.max(8,Math.round(sh*k));
+  const t=document.createElement('canvas');t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(src,0,0,w,h);const d=x.getImageData(0,0,w,h).data;
+  const col=new Float32Array(w),row=new Float32Array(h);
+  for(let y=0;y<h-1;y++)for(let xx=0;xx<w-1;xx++){const i=(y*w+xx)*4,j=i+4,m=i+w*4;
+    const l=.3*d[i]+.59*d[i+1]+.11*d[i+2],l2=.3*d[j]+.59*d[j+1]+.11*d[j+2],l3=.3*d[m]+.59*d[m+1]+.11*d[m+2];
+    const mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]);const v=Math.abs(l-l2)+Math.abs(l-l3)+.35*(mx-mn);col[xx]+=v;row[y]+=v}
+  const wide=sw/sh>target,arr=wide?col:row,len=arr.length,win=wide?Math.round(h*target):Math.round(w/target);
+  if(win>=len)return[.5,.5];
+  const pre=[0];for(let i=0;i<len;i++)pre.push(pre[i]+arr[i]);
+  let best=0,bs=-1;for(let s=0;s<=len-win;s++){const c=(s+win/2)/len,sc=(pre[s+win]-pre[s])*(1-.3*Math.abs(c-.5)*2);if(sc>bs){bs=sc;best=s}}
+  const f=best/(len-win);return wide?[f,.5]:[.5,f];
+}
+function coverAt(src,W,H,fx=.5,fy=.5){const c=document.createElement('canvas');c.width=W;c.height=H;const sc=Math.max(W/src.width,H/src.height),dw=src.width*sc,dh=src.height*sc;c.getContext('2d').drawImage(src,-(dw-W)*fx,-(dh-H)*fy,dw,dh);return c}
+/* the photo shown for slot i: the person's edit, or the AI-enhanced version when they have chosen it */
+const srcOf=i=>{const e=S.edited[i%S.edited.length];const h=S.enhOn&&S.enh&&S.enh.get(i%S.edited.length);return h?{blob:h.blob,view:h.view,pos:h.pos,ai:true}:{blob:e.blob,view:e.view,pos:e.pos||[.5,.5],ai:false}};
 /* ---------- Designed layout: the real, edited photo plus headline, tagline, badges and a button ---------- */
 const DZB=[
  {head:'Your Story, Beautifully Told',tag:'Real moments, edited with care.',b:[['star','Real moments'],['heart','Edited with care'],['check','Made for you']]},
@@ -454,7 +472,7 @@ function dzSpec(){if(!S.dz)S.dz={on:true,edited:false};if(!S.dz.edited)Object.as
 const DZI={star:'M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.200L12 17l-5.600 3 1.300-6.200L3 9.500l6.300-.700z',heart:'M12 20s-7-4.300-7-10a4 4 0 0 1 7-2.500A4 4 0 0 1 19 10c0 5.700-7 10-7 10z',check:'M4 12.500l5 5L20 6.500',leaf:'M5 19c0-8 5-14 14-14 0 9-6 14-14 14zM5 19c3-4 6-7 9-9',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3.500 2',tag:'M3 12V4h8l10 10-8 8L3 12zM7.500 8.500h.01',fork:'M7 3v7M4.500 3v5a2.500 2.500 0 0 0 5 0V3M7 11v10M17.500 3c-2 2-3 5-3 8h3v10'};
 const DZCACHE=new Map(),DZPEND=new Set();
 async function composeDesign(i,W=1080,H=1350){
-  const sp=dzSpec(),bm=await createImageBitmap(S.edited[i%S.edited.length].blob),c=drawCover(bm,W,H);bm.close&&bm.close();
+  const sp=dzSpec(),o=srcOf(i),bm=await createImageBitmap(o.blob),c=coverAt(bm,W,H,o.pos[0],o.pos[1]);bm.close&&bm.close();
   try{await Promise.all([document.fonts.load('700 100px Fraunces'),document.fonts.load('600 60px "Dancing Script"'),document.fonts.load('700 30px Manrope'),document.fonts.load('500 30px Manrope')])}catch(e){}
   const x=c.getContext('2d'),M=Math.round(W*.06),GOLD='#F0B84A';
   let g=x.createLinearGradient(0,0,0,H*.5);g.addColorStop(0,'rgba(14,11,9,.78)');g.addColorStop(.6,'rgba(14,11,9,.28)');g.addColorStop(1,'rgba(14,11,9,0)');x.fillStyle=g;x.fillRect(0,0,W,H*.5);
@@ -482,23 +500,43 @@ async function composeDesign(i,W=1080,H=1350){
   return c;
 }
 function designUrl(i){
-  const sp=dzSpec(),key=i+'|'+S.edited[i].view+'|'+[sp.kick,sp.head,sp.tag,sp.cta,sp.badges,S.biz].join('~');
+  const sp=dzSpec(),key=i+'|'+srcOf(i).view+'|'+[sp.kick,sp.head,sp.tag,sp.cta,sp.badges,S.biz].join('~');
   if(DZCACHE.has(key))return DZCACHE.get(key);
   if(!DZPEND.has(key)){DZPEND.add(key);composeDesign(i).then(c=>toBlob(c,.9)).then(b=>{DZCACHE.set(key,blobUrl(b));DZPEND.delete(key);if(S._igKick)S._igKick()}).catch(()=>DZPEND.delete(key))}
   return null;
 }
-function dzForm(r,after){
+function dzForm(r,after,getIdx){
   const sp=dzSpec(),f=document.createElement('div');
   f.style.cssText='box-sizing:border-box;margin:0 auto 20px;width:100%;max-width:380px;background:#fff;border:1px solid #E3DDD0;border-radius:14px;padding:14px;font:500 13px Manrope,sans-serif;color:#201C18';
   const fld=(k,l)=>`<label style="display:block;margin-top:10px;font-weight:700;font-size:12px;color:#6B6F7C">${l}<input data-k="${k}" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px 10px;border:1px solid #E3DDD0;border-radius:9px;font:500 14px Manrope,sans-serif;color:#201C18;background:#FDFCF8" value=""></label>`;
-  f.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><b style="font-size:14px">Designed layout</b><div class="seg" style="display:flex;background:#F0EBDD;border-radius:9px;padding:3px"><div data-on="0" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Plain photo</div><div data-on="1" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Designed</div></div></div><div class="flds">${fld('kick','Small line (script)')}${fld('head','Headline')}${fld('tag','Tagline')}${fld('badges','Three badges, separated by commas')}${fld('cta','Button')}</div>`;
+  f.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><b style="font-size:14px">Designed layout</b><div class="seg" style="display:flex;background:#F0EBDD;border-radius:9px;padding:3px"><div data-on="0" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Plain photo</div><div data-on="1" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Designed</div></div></div><div class="flds">${fld('kick','Small line (script)')}${fld('head','Headline')}${fld('tag','Tagline')}${fld('badges','Three badges, separated by commas')}${fld('cta','Button')}</div><div style="margin-top:14px;padding-top:12px;border-top:1px solid #E3DDD0"><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="enh" style="flex:1 1 auto;text-align:center;padding:10px 12px;border-radius:10px;background:#201C18;color:#fff;font-weight:700;cursor:pointer">Enhance scene (AI, optional)</div><div class="unenh" style="display:none;padding:10px 12px;border-radius:10px;border:1px solid #E3DDD0;font-weight:700;cursor:pointer">Use my edit</div></div><div style="margin-top:8px;font-size:12px;line-height:1.4;color:#6B6F7C">Uses an AI image service to restyle the background and light. Your natural edit stays the default, and the result can look AI-made.</div></div>`;
   const paint=()=>{f.querySelectorAll('[data-on]').forEach(b=>{const on=(b.dataset.on==='1')===sp.on;b.style.background=on?'#fff':'transparent';b.style.color=on?'#201C18':'#6B6F7C'});f.querySelector('.flds').style.display=sp.on?'block':'none'};
   f.querySelectorAll('input').forEach(i=>{i.value=sp[i.dataset.k]||'';i.oninput=()=>{sp.edited=true;sp[i.dataset.k]=i.value}});
   f.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>{sp.on=b.dataset.on==='1';paint();S._igKick&&S._igKick()});
+  const eb=f.querySelector('.enh'),ub=f.querySelector('.unenh');const showU=()=>{ub.style.display=S.enhOn?'block':'none';eb.textContent=S.enhOn?'Enhance again':'Enhance scene (AI, optional)'};
+  eb.onclick=async()=>{if(eb.dataset.busy)return;eb.dataset.busy=1;try{await enhanceScene(getIdx());showU()}catch(e){toast(e.message||'Enhance scene failed.')}finally{delete eb.dataset.busy}};
+  ub.onclick=()=>{S.enhOn=false;showU();S._igKick&&S._igKick()};showU();
   paint();after.insertAdjacentElement('afterend',f);
   /* keep the fields in step with the business and promotion chips until the person types their own */
   const sync=()=>{if(!sp.edited){Object.assign(sp,dzDefaults());f.querySelectorAll('input').forEach(i=>{if(document.activeElement!==i)i.value=sp[i.dataset.k]||''})}};
   r.addEventListener('click',()=>setTimeout(sync,0),true);
+}
+async function enhanceScene(i){
+  const e=S.edited[i];if(!e)throw new Error('Pick a photo first.');
+  const b=busy('Enhancing the scene');
+  try{
+    const bm=await createImageBitmap(e.blob),cv=drawContain(bm,1280);bm.close&&bm.close();
+    const send=tk=>{const h={'Content-Type':'application/json'};if(tk)h['x-pp-token']=tk;return fetch('/api/enhance',{method:'POST',headers:h,body:JSON.stringify({image:cv.toDataURL('image/jpeg',.88),business:BIZ[S.biz].p})})};
+    let tk='';try{tk=localStorage.getItem('pp_tk')||''}catch(_){}
+    let res=await send(tk);
+    if(res.status===401){const t=window.prompt('Enter the access code for Enhance scene');if(!t)throw new Error('Enhance scene needs the access code.');try{localStorage.setItem('pp_tk',t)}catch(_){}res=await send(t)}
+    const j=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(j.error==='not_configured'?'Enhance scene is not switched on yet. The site owner needs to add an image service key in Vercel.':(j.message||'Enhance scene failed. Try again.'));
+    const blob=await (await fetch('data:image/jpeg;base64,'+j.image)).blob(),bm2=await createImageBitmap(blob);
+    const pos=focusOf(bm2);bm2.close&&bm2.close();
+    if(!S.enh)S.enh=new Map();const old=S.enh.get(i);if(old)URL.revokeObjectURL(old.view);
+    S.enh.set(i,{blob,view:blobUrl(blob),pos});S.enhOn=true;S._igKick&&S._igKick();
+  }finally{b.done()}
 }
 /* ---------- Instagram-style preview (screen 8): shows the post the way it will look on Instagram ---------- */
 const ICON={heart:'<path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.7 5 6 5c2 0 3.4 1.1 4.2 2.4h.1C11.1 6.1 12.5 5 14.5 5c3.3 0 5.1 3.400 3.600 6.800C19.500 16.400 12 21 12 21z"/>',chat:'<path d="M21 11.500a8.500 8.500 0 0 1-12.300 7.600L3 21l1.900-5.500A8.500 8.500 0 1 1 21 11.500z"/>',send:'<path d="M22 3 2 10.500l7.500 3L13 21z M22 3 9.500 13.500"/>',save:'<path d="M6 3h12v18l-6-4.500L6 21z"/>'};
@@ -518,9 +556,9 @@ function igPost(r,kind,anchorText,getList,getCaption){
   const track=w.querySelector('.igt'),badge=w.querySelector('.igb'),dots=w.querySelector('.igd'),capEl=w.querySelector('.igc');
   let key='',tick=0;S._igKick=()=>{key=''};
   const draw=()=>{
-    const ids=getList().filter(i=>S.edited[i]),sp0=dzSpec(),urls=ids.map((i,n)=>kind!=='reel'&&sp0.on&&n===0?(designUrl(i)||S.edited[i].view):S.edited[i].view),k=kind+urls.join(',');
+    const ids=getList().filter(i=>S.edited[i]),sp0=dzSpec(),urls=ids.map((i,n)=>kind!=='reel'&&sp0.on&&n===0?(designUrl(i)||srcOf(i).view):(kind==='reel'?S.edited[i].view:srcOf(i).view)),k=kind+urls.join(',');
     if(k!==key){key=k;track.innerHTML='';
-      ids.forEach((i,n)=>{const im=document.createElement('div');im.style.cssText='flex:0 0 100%;height:100%;scroll-snap-align:center;background:url('+urls[n]+') center / cover'+(kind==='reel'?';transition:opacity .6s;opacity:'+(n?0:1)+';position:absolute;inset:0;flex:none;width:100%':'');track.append(im)});
+      ids.forEach((i,n)=>{const im=document.createElement('div');im.style.cssText='flex:0 0 100%;height:100%;scroll-snap-align:center;background:url('+urls[n]+') '+(kind==='reel'?'center':srcOf(ids[n]).pos.map(v=>Math.round(v*100)+'%').join(' '))+' / cover'+(kind==='reel'?';transition:opacity .6s;opacity:'+(n?0:1)+';position:absolute;inset:0;flex:none;width:100%':'');track.append(im)});
       if(kind==='reel'){track.style.display='block'}
       dots.innerHTML=ids.map((_,n)=>`<div style="width:6px;height:6px;border-radius:3px;background:${n?'#C9C2B2':'#7A5A1C'}"></div>`).join('');
       dots.style.display=kind==='carousel'&&ids.length>1?'flex':'none';badge.style.display=kind==='carousel'&&ids.length>1?'block':'none';badge.textContent='1/'+ids.length}
@@ -537,7 +575,7 @@ BIND.Customize=r=>{
   const sr=slotRow(r,S.car,{min:3,max:5});
   const redrawGrid=()=>editedGrid(r,i=>{sr.add(i);redrawGrid()},{exclude:S.car});redrawGrid();
   r.addEventListener('change',redrawGrid,true);
-  {const w=igPost(r,'carousel','Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.',()=>S.car,()=>ta.value);w&&dzForm(r,w)}
+  {const w=igPost(r,'carousel','Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.',()=>S.car,()=>ta.value);w&&dzForm(r,w,()=>S.car[0])}
   refLink(r);doneBtn(r);
   findText(r,'Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.')&&0;
 };
@@ -548,7 +586,7 @@ BIND.Caption=r=>{
   hero.style.cursor='pointer';hero.onclick=()=>{S.capIdx=(S.capIdx+1)%S.edited.length;setHero()};
   const ta=captionBox(r);promoteChips(r,()=>ta.value=cap());
   editedGrid(r,i=>{S.capIdx=i;setHero()});
-  {const w=igPost(r,'photo','Change the photo, the message or what you promote.',()=>[S.capIdx],()=>ta.value);w&&dzForm(r,w)}
+  {const w=igPost(r,'photo','Change the photo, the message or what you promote.',()=>[S.capIdx],()=>ta.value);w&&dzForm(r,w,()=>S.capIdx)}
   refLink(r);doneBtn(r);
 };
 BIND.Reel=r=>{
