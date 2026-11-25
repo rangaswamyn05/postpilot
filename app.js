@@ -471,10 +471,24 @@ function dzDefaults(){const b=DZB[S.biz];return{kick:DZK[S.promote],head:b.head,
 function dzSpec(){if(!S.dz)S.dz={on:true,edited:false};if(!S.dz.edited)Object.assign(S.dz,dzDefaults());return S.dz}
 const DZI={star:'M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.200L12 17l-5.600 3 1.300-6.200L3 9.500l6.300-.700z',heart:'M12 20s-7-4.300-7-10a4 4 0 0 1 7-2.500A4 4 0 0 1 19 10c0 5.700-7 10-7 10z',check:'M4 12.500l5 5L20 6.500',leaf:'M5 19c0-8 5-14 14-14 0 9-6 14-14 14zM5 19c3-4 6-7 9-9',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3.500 2',tag:'M3 12V4h8l10 10-8 8L3 12zM7.500 8.500h.01',fork:'M7 3v7M4.500 3v5a2.500 2.500 0 0 0 5 0V3M7 11v10M17.500 3c-2 2-3 5-3 8h3v10'};
 const DZCACHE=new Map(),DZPEND=new Set();
+/* depth without AI: keep the middle sharp, let the edges fall softly out of focus and darken slightly, the way a wide-open lens does */
+function softEdges(c){
+  const W=c.width,H=c.height,x=c.getContext('2d');
+  const mk=(w,h)=>{const t=document.createElement('canvas');t.width=w;t.height=h;const q=t.getContext('2d');q.imageSmoothingEnabled=true;q.imageSmoothingQuality='high';return[t,q]};
+  let [a,qa]=mk(Math.round(W/5),Math.round(H/5));qa.drawImage(c,0,0,a.width,a.height);
+  let [b,qb]=mk(Math.round(W/12),Math.round(H/12));qb.drawImage(a,0,0,b.width,b.height);
+  const [d,qd]=mk(W,H);qd.imageSmoothingEnabled=true;qd.imageSmoothingQuality='high';qd.drawImage(b,0,0,W,H);
+  const cx=W/2,cy=H*.52;qd.save();qd.globalCompositeOperation='destination-in';qd.translate(cx,cy);qd.scale(1,H/W*1.12);
+  const g=qd.createRadialGradient(0,0,W*.34,0,0,W*.78);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.85)');qd.fillStyle=g;qd.fillRect(-W,-W*2,W*2,W*4);qd.restore();
+  x.drawImage(d,0,0);
+  x.save();x.translate(cx,cy);x.scale(1,H/W*1.12);const v=x.createRadialGradient(0,0,W*.4,0,0,W*.85);v.addColorStop(0,'rgba(10,8,6,0)');v.addColorStop(1,'rgba(10,8,6,.30)');x.fillStyle=v;x.fillRect(-W,-W*2,W*2,W*4);x.restore();
+}
 async function composeDesign(i,W=1080,H=1350){
   const sp=dzSpec(),o=srcOf(i),bm=await createImageBitmap(o.blob),c=coverAt(bm,W,H,o.pos[0],o.pos[1]);bm.close&&bm.close();
   try{await Promise.all([document.fonts.load('700 100px Fraunces'),document.fonts.load('600 60px "Dancing Script"'),document.fonts.load('700 30px Manrope'),document.fonts.load('500 30px Manrope')])}catch(e){}
   const x=c.getContext('2d'),M=Math.round(W*.06),GOLD='#F0B84A';
+  if(sp.depth!==false&&!o.ai)softEdges(c);
+
   let g=x.createLinearGradient(0,0,0,H*.5);g.addColorStop(0,'rgba(14,11,9,.78)');g.addColorStop(.6,'rgba(14,11,9,.28)');g.addColorStop(1,'rgba(14,11,9,0)');x.fillStyle=g;x.fillRect(0,0,W,H*.5);
   g=x.createLinearGradient(0,H*.76,0,H);g.addColorStop(0,'rgba(14,11,9,0)');g.addColorStop(1,'rgba(14,11,9,.78)');x.fillStyle=g;x.fillRect(0,H*.76,W,H*.24);
   x.textBaseline='alphabetic';x.textAlign='left';x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=14;
@@ -500,7 +514,7 @@ async function composeDesign(i,W=1080,H=1350){
   return c;
 }
 function designUrl(i){
-  const sp=dzSpec(),key=i+'|'+srcOf(i).view+'|'+[sp.kick,sp.head,sp.tag,sp.cta,sp.badges,S.biz].join('~');
+  const sp=dzSpec(),key=i+'|'+srcOf(i).view+'|'+[sp.kick,sp.head,sp.tag,sp.cta,sp.badges,S.biz,sp.depth].join('~');
   if(DZCACHE.has(key))return DZCACHE.get(key);
   if(!DZPEND.has(key)){DZPEND.add(key);composeDesign(i).then(c=>toBlob(c,.9)).then(b=>{DZCACHE.set(key,blobUrl(b));DZPEND.delete(key);if(S._igKick)S._igKick()}).catch(()=>DZPEND.delete(key))}
   return null;
@@ -509,10 +523,11 @@ function dzForm(r,after,getIdx){
   const sp=dzSpec(),f=document.createElement('div');
   f.style.cssText='box-sizing:border-box;margin:0 auto 20px;width:100%;max-width:380px;background:#fff;border:1px solid #E3DDD0;border-radius:14px;padding:14px;font:500 13px Manrope,sans-serif;color:#201C18';
   const fld=(k,l)=>`<label style="display:block;margin-top:10px;font-weight:700;font-size:12px;color:#6B6F7C">${l}<input data-k="${k}" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px 10px;border:1px solid #E3DDD0;border-radius:9px;font:500 14px Manrope,sans-serif;color:#201C18;background:#FDFCF8" value=""></label>`;
-  f.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><b style="font-size:14px">Designed layout</b><div class="seg" style="display:flex;background:#F0EBDD;border-radius:9px;padding:3px"><div data-on="0" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Plain photo</div><div data-on="1" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Designed</div></div></div><div class="flds">${fld('kick','Small line (script)')}${fld('head','Headline')}${fld('tag','Tagline')}${fld('badges','Three badges, separated by commas')}${fld('cta','Button')}</div><div style="margin-top:14px;padding-top:12px;border-top:1px solid #E3DDD0"><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="enh" style="flex:1 1 auto;text-align:center;padding:10px 12px;border-radius:10px;background:#201C18;color:#fff;font-weight:700;cursor:pointer">Enhance scene (AI, optional)</div><div class="unenh" style="display:none;padding:10px 12px;border-radius:10px;border:1px solid #E3DDD0;font-weight:700;cursor:pointer">Use my edit</div></div><div style="margin-top:8px;font-size:12px;line-height:1.4;color:#6B6F7C">Uses an AI image service to restyle the background and light. Your natural edit stays the default, and the result can look AI-made.</div></div>`;
+  f.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><b style="font-size:14px">Designed layout</b><div class="seg" style="display:flex;background:#F0EBDD;border-radius:9px;padding:3px"><div data-on="0" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Plain photo</div><div data-on="1" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Designed</div></div></div><div class="flds">${fld('kick','Small line (script)')}${fld('head','Headline')}${fld('tag','Tagline')}${fld('badges','Three badges, separated by commas')}${fld('cta','Button')}<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" class="dp" style="width:16px;height:16px"> Soft focus on the edges</label></div><div style="margin-top:14px;padding-top:12px;border-top:1px solid #E3DDD0"><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="enh" style="flex:1 1 auto;text-align:center;padding:10px 12px;border-radius:10px;background:#201C18;color:#fff;font-weight:700;cursor:pointer">Enhance scene (AI, optional)</div><div class="unenh" style="display:none;padding:10px 12px;border-radius:10px;border:1px solid #E3DDD0;font-weight:700;cursor:pointer">Use my edit</div></div><div style="margin-top:8px;font-size:12px;line-height:1.4;color:#6B6F7C">Uses an AI image service to restyle the background and light. Your natural edit stays the default, and the result can look AI-made.</div></div>`;
   const paint=()=>{f.querySelectorAll('[data-on]').forEach(b=>{const on=(b.dataset.on==='1')===sp.on;b.style.background=on?'#fff':'transparent';b.style.color=on?'#201C18':'#6B6F7C'});f.querySelector('.flds').style.display=sp.on?'block':'none'};
   f.querySelectorAll('input').forEach(i=>{i.value=sp[i.dataset.k]||'';i.oninput=()=>{sp.edited=true;sp[i.dataset.k]=i.value}});
   f.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>{sp.on=b.dataset.on==='1';paint();S._igKick&&S._igKick()});
+  const dp=f.querySelector('.dp');dp.checked=sp.depth!==false;dp.onchange=()=>{sp.depth=dp.checked};
   const eb=f.querySelector('.enh'),ub=f.querySelector('.unenh');const showU=()=>{ub.style.display=S.enhOn?'block':'none';eb.textContent=S.enhOn?'Enhance again':'Enhance scene (AI, optional)'};
   eb.onclick=async()=>{if(eb.dataset.busy)return;eb.dataset.busy=1;try{await enhanceScene(getIdx());showU()}catch(e){toast(e.message||'Enhance scene failed.')}finally{delete eb.dataset.busy}};
   ub.onclick=()=>{S.enhOn=false;showU();S._igKick&&S._igKick()};showU();
