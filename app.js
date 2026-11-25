@@ -404,14 +404,14 @@ BIND.Results=async r=>{
   const dl=findText(r,`Download all (${FMT(n)})`);
   dl.onclick=async e=>{e.preventDefault();const old=dl.textContent;dl.textContent='Packing your files…';
     const files=[];for(const x of S.edited)files.push({name:'photos/'+x.name,blob:x.blob});
-    for(let i=0;i<S.car.length;i++)files.push({name:`carousel/slide-${i+1}.jpg`,blob:await toBlob(await slide(S.car[i]),.92)});
-    files.push({name:'captioned-post/photo.jpg',blob:await toBlob(await slide(S.capIdx),.92)});
+    for(let i=0;i<S.car.length;i++)files.push({name:`carousel/slide-${i+1}.jpg`,blob:await toBlob(await slide(S.car[i],1080,1350,i===0),.92)});
+    files.push({name:'captioned-post/photo.jpg',blob:await toBlob(await slide(S.capIdx,1080,1350,true),.92)});
     files.push({name:'captioned-post/caption.txt',blob:new Blob([cap()],{type:'text/plain'})});
     save(await makeZip(files),'postpilot-content.zip');dl.textContent=old;feedback()};
   const drive=findText(r,'Save to Google Drive');drive.onclick=e=>{e.preventDefault();toast('Saving to Google Drive is coming in the next version.')};
   if(!wantEdit){const w=findText(r,'One consistent look across the whole set.');if(w)w.textContent='Your shortlist, ready to download.'}
 };
-async function slide(i,W=1080,H=1350){const bm=await createImageBitmap(S.edited[i%S.edited.length].blob);const c=drawCover(bm,W,H);bm.close&&bm.close();return c}
+async function slide(i,W=1080,H=1350,design=false){if(design&&dzSpec().on)return composeDesign(i,W,H);const bm=await createImageBitmap(S.edited[i%S.edited.length].blob);const c=drawCover(bm,W,H);bm.close&&bm.close();return c}
 
 /* shared pieces for the three Customize screens */
 function editedGrid(r,onPick,{exclude=[]}={}){
@@ -438,11 +438,73 @@ function slotRow(r,list,{min,max,label}){
   draw();return{draw,add:i=>{if(list.length>=max){toast(`Up to ${max} photos.`);return}list.push(i);draw()}};
 }
 const doneBtn=r=>{const d=r.querySelector('a[data-go="Results"]');d.onclick=e=>{e.preventDefault();go('Results')};return d};
+/* ---------- Designed layout: the real, edited photo plus headline, tagline, badges and a button ---------- */
+const DZB=[
+ {head:'Your Story, Beautifully Told',tag:'Real moments, edited with care.',b:[['star','Real moments'],['heart','Edited with care'],['check','Made for you']]},
+ {head:'Fresh From Our Kitchen',tag:'Simple. Tasty. Made with care.',b:[['leaf','Made fresh'],['fork','Great flavour'],['heart','Made with care']]},
+ {head:'New In Store',tag:'Hand-picked, just for you.',b:[['star','Hand-picked'],['tag','New arrivals'],['heart','Made for you']]},
+ {head:'Look Your Best',tag:'Care and craft in every visit.',b:[['star','Expert care'],['heart','Made for you'],['check','Book easily']]},
+ {head:'Train With Purpose',tag:'Move well. Feel strong.',b:[['heart','Feel strong'],['check','Every level'],['clock','Make time']]},
+ {head:'Find Your Next Home',tag:'Walk through it with us.',b:[['check','Clear advice'],['star','Local know-how'],['heart','Right fit']]},
+ {head:'New Work',tag:'Made by hand, one piece at a time.',b:[['star','Original'],['heart','Made by hand'],['check','Limited']]},
+ {head:'Made With Care',tag:'Simple. Honest. Yours.',b:[['star','Quality'],['heart','Made with care'],['check','Made for you']]}];
+const DZK=['Now available','What we do best','Save the date','Special offer','Our story'],DZC_=['Shop now','Book now','Join us','Claim offer','Learn more'];
+function dzDefaults(){const b=DZB[S.biz];return{kick:DZK[S.promote],head:b.head,tag:b.tag,cta:DZC_[S.promote],badges:b.b.map(x=>x[1]).join(', ')}}
+function dzSpec(){if(!S.dz)S.dz={on:true,edited:false};if(!S.dz.edited)Object.assign(S.dz,dzDefaults());return S.dz}
+const DZI={star:'M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.200L12 17l-5.600 3 1.300-6.200L3 9.500l6.300-.700z',heart:'M12 20s-7-4.300-7-10a4 4 0 0 1 7-2.500A4 4 0 0 1 19 10c0 5.700-7 10-7 10z',check:'M4 12.500l5 5L20 6.500',leaf:'M5 19c0-8 5-14 14-14 0 9-6 14-14 14zM5 19c3-4 6-7 9-9',clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3.500 2',tag:'M3 12V4h8l10 10-8 8L3 12zM7.500 8.500h.01',fork:'M7 3v7M4.500 3v5a2.500 2.500 0 0 0 5 0V3M7 11v10M17.500 3c-2 2-3 5-3 8h3v10'};
+const DZCACHE=new Map(),DZPEND=new Set();
+async function composeDesign(i,W=1080,H=1350){
+  const sp=dzSpec(),bm=await createImageBitmap(S.edited[i%S.edited.length].blob),c=drawCover(bm,W,H);bm.close&&bm.close();
+  try{await Promise.all([document.fonts.load('700 100px Fraunces'),document.fonts.load('600 60px "Dancing Script"'),document.fonts.load('700 30px Manrope'),document.fonts.load('500 30px Manrope')])}catch(e){}
+  const x=c.getContext('2d'),M=Math.round(W*.06),GOLD='#F0B84A';
+  let g=x.createLinearGradient(0,0,0,H*.5);g.addColorStop(0,'rgba(14,11,9,.78)');g.addColorStop(.6,'rgba(14,11,9,.28)');g.addColorStop(1,'rgba(14,11,9,0)');x.fillStyle=g;x.fillRect(0,0,W,H*.5);
+  g=x.createLinearGradient(0,H*.76,0,H);g.addColorStop(0,'rgba(14,11,9,0)');g.addColorStop(1,'rgba(14,11,9,.78)');x.fillStyle=g;x.fillRect(0,H*.76,W,H*.24);
+  x.textBaseline='alphabetic';x.textAlign='left';x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=14;
+  let y=Math.round(H*.085);
+  if(sp.kick){x.font='600 '+Math.round(W*.052)+'px "Dancing Script", "Brush Script MT", cursive';x.fillStyle=GOLD;x.fillText(sp.kick,M,y)}
+  /* headline: wrap to at most two lines and shrink to fit the width */
+  const maxW=W*.72,words=(sp.head||'').split(/\s+/).filter(Boolean);let size=Math.round(W*.108),lines=[sp.head||''];
+  const fit=()=>{x.font='700 '+size+'px Fraunces, Georgia, serif';return lines.every(l=>x.measureText(l).width<=maxW)};
+  for(;size>=52;size-=4){x.font='700 '+size+'px Fraunces, Georgia, serif';if(x.measureText(sp.head).width<=maxW){lines=[sp.head];break}
+    if(words.length>1){let best=null;for(let k=1;k<words.length;k++){const a=words.slice(0,k).join(' '),b=words.slice(k).join(' ');const wd=Math.max(x.measureText(a).width,x.measureText(b).width);if(!best||wd<best.w)best={w:wd,l:[a,b]}}lines=best.l;if(fit())break}}
+  x.fillStyle='#fff';y+=Math.round(size*1.05);lines.forEach((l,k)=>{x.fillText(l,M,y+k*size*1.02)});y+=(lines.length-1)*size*1.02;
+  if(sp.tag){y+=Math.round(W*.068);x.font='500 '+Math.round(W*.034)+'px Manrope, system-ui, sans-serif';x.fillStyle='rgba(255,255,255,.94)';x.fillText(sp.tag,M,y);y+=Math.round(W*.03);x.fillStyle=GOLD;x.shadowBlur=0;x.fillRect(M,y,Math.round(W*.085),4)}
+  /* bottom: three badges and a button */
+  x.shadowBlur=10;const labels=(sp.badges||'').split(',').map(t=>t.trim()).filter(Boolean).slice(0,3),icons=DZB[S.biz].b.map(b=>b[0]);
+  const by=H-Math.round(H*.07),bw=Math.round(W*.172);
+  labels.forEach((lb,k)=>{const cx=M+bw*k+bw/2;x.save();x.translate(cx-Math.round(W*.027),by-Math.round(W*.125));x.scale(Math.round(W*.054)/24,Math.round(W*.054)/24);x.strokeStyle=GOLD;x.lineWidth=1.8;x.lineJoin='round';x.lineCap='round';x.shadowBlur=0;x.stroke(new Path2D(DZI[icons[k]||'star']));x.restore();
+    x.font='500 '+Math.round(W*.023)+'px Manrope, system-ui, sans-serif';x.fillStyle='#fff';x.textAlign='center';const wd=lb.split(' ');let a=lb,b='';if(wd.length>1&&x.measureText(lb).width>bw*.9){const m=Math.ceil(wd.length/2);a=wd.slice(0,m).join(' ');b=wd.slice(m).join(' ')}
+    x.fillText(a,cx,by-Math.round(W*.02));if(b)x.fillText(b,cx,by+Math.round(W*.008));
+    if(k<labels.length-1){x.fillStyle='rgba(255,255,255,.55)';x.fillRect(M+bw*(k+1),by-Math.round(W*.1),2,Math.round(W*.095))}});
+  x.textAlign='left';
+  if(sp.cta){let fs=Math.round(W*.032);x.font='700 '+fs+'px Manrope, system-ui, sans-serif';const room=W-M*2-bw*labels.length-24;let tw=x.measureText(sp.cta).width;while(tw+fs*1.8>room&&fs>18){fs-=2;x.font='700 '+fs+'px Manrope, system-ui, sans-serif';tw=x.measureText(sp.cta).width}
+    const bh=Math.round(fs*2.5),bwid=Math.round(tw+fs*2),bx=W-M-bwid,byy=by-Math.round(bh*.55);x.shadowBlur=0;x.fillStyle=GOLD;x.beginPath();x.roundRect?x.roundRect(bx,byy,bwid,bh,bh/2):x.rect(bx,byy,bwid,bh);x.fill();x.fillStyle='#201C18';x.textBaseline='middle';x.fillText(sp.cta,bx+fs,byy+bh/2+1)}
+  return c;
+}
+function designUrl(i){
+  const sp=dzSpec(),key=i+'|'+S.edited[i].view+'|'+[sp.kick,sp.head,sp.tag,sp.cta,sp.badges,S.biz].join('~');
+  if(DZCACHE.has(key))return DZCACHE.get(key);
+  if(!DZPEND.has(key)){DZPEND.add(key);composeDesign(i).then(c=>toBlob(c,.9)).then(b=>{DZCACHE.set(key,blobUrl(b));DZPEND.delete(key);if(S._igKick)S._igKick()}).catch(()=>DZPEND.delete(key))}
+  return null;
+}
+function dzForm(r,after){
+  const sp=dzSpec(),f=document.createElement('div');
+  f.style.cssText='box-sizing:border-box;margin:0 auto 20px;width:100%;max-width:380px;background:#fff;border:1px solid #E3DDD0;border-radius:14px;padding:14px;font:500 13px Manrope,sans-serif;color:#201C18';
+  const fld=(k,l)=>`<label style="display:block;margin-top:10px;font-weight:700;font-size:12px;color:#6B6F7C">${l}<input data-k="${k}" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:9px 10px;border:1px solid #E3DDD0;border-radius:9px;font:500 14px Manrope,sans-serif;color:#201C18;background:#FDFCF8" value=""></label>`;
+  f.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between"><b style="font-size:14px">Designed layout</b><div class="seg" style="display:flex;background:#F0EBDD;border-radius:9px;padding:3px"><div data-on="0" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Plain photo</div><div data-on="1" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Designed</div></div></div><div class="flds">${fld('kick','Small line (script)')}${fld('head','Headline')}${fld('tag','Tagline')}${fld('badges','Three badges, separated by commas')}${fld('cta','Button')}</div>`;
+  const paint=()=>{f.querySelectorAll('[data-on]').forEach(b=>{const on=(b.dataset.on==='1')===sp.on;b.style.background=on?'#fff':'transparent';b.style.color=on?'#201C18':'#6B6F7C'});f.querySelector('.flds').style.display=sp.on?'block':'none'};
+  f.querySelectorAll('input').forEach(i=>{i.value=sp[i.dataset.k]||'';i.oninput=()=>{sp.edited=true;sp[i.dataset.k]=i.value}});
+  f.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>{sp.on=b.dataset.on==='1';paint();S._igKick&&S._igKick()});
+  paint();after.insertAdjacentElement('afterend',f);
+  /* keep the fields in step with the business and promotion chips until the person types their own */
+  const sync=()=>{if(!sp.edited){Object.assign(sp,dzDefaults());f.querySelectorAll('input').forEach(i=>{if(document.activeElement!==i)i.value=sp[i.dataset.k]||''})}};
+  r.addEventListener('click',()=>setTimeout(sync,0),true);
+}
 /* ---------- Instagram-style preview (screen 8): shows the post the way it will look on Instagram ---------- */
 const ICON={heart:'<path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.7 5 6 5c2 0 3.4 1.1 4.2 2.4h.1C11.1 6.1 12.5 5 14.5 5c3.3 0 5.1 3.400 3.600 6.800C19.500 16.400 12 21 12 21z"/>',chat:'<path d="M21 11.500a8.500 8.500 0 0 1-12.300 7.600L3 21l1.900-5.500A8.500 8.500 0 1 1 21 11.500z"/>',send:'<path d="M22 3 2 10.500l7.500 3L13 21z M22 3 9.500 13.500"/>',save:'<path d="M6 3h12v18l-6-4.500L6 21z"/>'};
 const ico=n=>`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#201C18" stroke-width="1.800" stroke-linejoin="round" stroke-linecap="round">${ICON[n]}</svg>`;
 function igPost(r,kind,anchorText,getList,getCaption){
-  const anchor=findText(r,anchorText);if(!anchor)return;
+  const anchor=findText(r,anchorText);if(!anchor)return null;
   const handle=BIZ[S.biz].n.split(' /')[0].toLowerCase().replace(/[^a-z0-9]+/g,'');
   const w=document.createElement('div');
   w.style.cssText='margin:6px auto 18px;width:100%;max-width:'+(kind==='reel'?'250px':'380px')+';background:#fff;border:1px solid #E3DDD0;border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(32,28,24,.08)';
@@ -454,11 +516,11 @@ function igPost(r,kind,anchorText,getList,getCaption){
    `<div class="igc" style="padding:6px 12px 12px;font:400 13px/1.45 Manrope,sans-serif;color:#201C18"></div>`;
   anchor.insertAdjacentElement('afterend',w);
   const track=w.querySelector('.igt'),badge=w.querySelector('.igb'),dots=w.querySelector('.igd'),capEl=w.querySelector('.igc');
-  let key='',tick=0;
+  let key='',tick=0;S._igKick=()=>{key=''};
   const draw=()=>{
-    const ids=getList().filter(i=>S.edited[i]),k=kind+ids.join(',');
+    const ids=getList().filter(i=>S.edited[i]),sp0=dzSpec(),urls=ids.map((i,n)=>kind!=='reel'&&sp0.on&&n===0?(designUrl(i)||S.edited[i].view):S.edited[i].view),k=kind+urls.join(',');
     if(k!==key){key=k;track.innerHTML='';
-      ids.forEach((i,n)=>{const im=document.createElement('div');im.style.cssText='flex:0 0 100%;height:100%;scroll-snap-align:center;background:url('+S.edited[i].view+') center / cover'+(kind==='reel'?';transition:opacity .6s;opacity:'+(n?0:1)+';position:absolute;inset:0;flex:none;width:100%':'');track.append(im)});
+      ids.forEach((i,n)=>{const im=document.createElement('div');im.style.cssText='flex:0 0 100%;height:100%;scroll-snap-align:center;background:url('+urls[n]+') center / cover'+(kind==='reel'?';transition:opacity .6s;opacity:'+(n?0:1)+';position:absolute;inset:0;flex:none;width:100%':'');track.append(im)});
       if(kind==='reel'){track.style.display='block'}
       dots.innerHTML=ids.map((_,n)=>`<div style="width:6px;height:6px;border-radius:3px;background:${n?'#C9C2B2':'#7A5A1C'}"></div>`).join('');
       dots.style.display=kind==='carousel'&&ids.length>1?'flex':'none';badge.style.display=kind==='carousel'&&ids.length>1?'block':'none';badge.textContent='1/'+ids.length}
@@ -467,6 +529,7 @@ function igPost(r,kind,anchorText,getList,getCaption){
   track.addEventListener('scroll',()=>{if(kind!=='carousel')return;const n=Math.round(track.scrollLeft/track.clientWidth);[...dots.children].forEach((d,i)=>d.style.background=i===n?'#7A5A1C':'#C9C2B2');badge.textContent=(n+1)+'/'+dots.children.length});
   draw();
   S._ig=setInterval(()=>{draw();if(kind==='reel'){const sl=[...track.children];if(sl.length>1){tick=(tick+1)%sl.length;sl.forEach((e,i)=>e.style.opacity=i===tick?1:0)}}},kind==='reel'?1800:400);
+  return w;
 }
 BIND.Customize=r=>{
   if(!S.edited.length)return go('Results');
@@ -474,7 +537,7 @@ BIND.Customize=r=>{
   const sr=slotRow(r,S.car,{min:3,max:5});
   const redrawGrid=()=>editedGrid(r,i=>{sr.add(i);redrawGrid()},{exclude:S.car});redrawGrid();
   r.addEventListener('change',redrawGrid,true);
-  igPost(r,'carousel','Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.',()=>S.car,()=>ta.value);
+  {const w=igPost(r,'carousel','Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.',()=>S.car,()=>ta.value);w&&dzForm(r,w)}
   refLink(r);doneBtn(r);
   findText(r,'Tap a photo below to add it. Tap x to remove one. 3 to 5 photos.')&&0;
 };
@@ -485,7 +548,7 @@ BIND.Caption=r=>{
   hero.style.cursor='pointer';hero.onclick=()=>{S.capIdx=(S.capIdx+1)%S.edited.length;setHero()};
   const ta=captionBox(r);promoteChips(r,()=>ta.value=cap());
   editedGrid(r,i=>{S.capIdx=i;setHero()});
-  igPost(r,'photo','Change the photo, the message or what you promote.',()=>[S.capIdx],()=>ta.value);
+  {const w=igPost(r,'photo','Change the photo, the message or what you promote.',()=>[S.capIdx],()=>ta.value);w&&dzForm(r,w)}
   refLink(r);doneBtn(r);
 };
 BIND.Reel=r=>{
